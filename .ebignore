@@ -1,0 +1,7 @@
+Client/
+jobify.zip
+repo-linux.zip
+kill-port-5000.bat
+kill-port-5000.ps1
+node_modules/
+*.log
