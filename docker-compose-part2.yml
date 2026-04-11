@@ -1,9 +1,12 @@
 services:
   web-part2:
-    build: .
+    image: bcs7b/jobify-fixed:latest
     container_name: jobify-part2
     ports:
       - "8083:5000"
+    restart: always
+    volumes:
+      - .:/app
     environment:
       - PORT=5000
       - NODE_ENV=production
