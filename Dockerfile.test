@@ -1,7 +1,5 @@
 # ─────────────────────────────────────────────────────────────────
-#  Dockerfile.test
-#  Builds a Python + Chrome + Selenium image just for running tests.
-#  Your existing Dockerfile (Node app) is NOT touched.
+#  Dockerfile.test — Python + Chrome + Selenium (auto ChromeDriver)
 # ─────────────────────────────────────────────────────────────────
 
 FROM python:3.11-slim
@@ -38,27 +36,30 @@ RUN wget -q -O /tmp/chrome.deb \
  && rm /tmp/chrome.deb \
  && rm -rf /var/lib/apt/lists/*
 
-# ── Install ChromeDriver that matches the Chrome version ─────────
-RUN CHROME_MAJOR=$(google-chrome --version | grep -oP '\d+' | head -1) \
- && DRIVER_VER=$(curl -s \
-        "https://chromedriver.storage.googleapis.com/LATEST_RELEASE_${CHROME_MAJOR}") \
- && wget -q -O /tmp/chromedriver.zip \
-        "https://chromedriver.storage.googleapis.com/${DRIVER_VER}/chromedriver_linux64.zip" \
- && unzip /tmp/chromedriver.zip -d /usr/local/bin/ \
- && chmod +x /usr/local/bin/chromedriver \
- && rm /tmp/chromedriver.zip
-
 # ── Python packages ───────────────────────────────────────────────
+# selenium>=4.6 includes Selenium Manager which auto-downloads
+# the correct ChromeDriver — no manual installation needed!
 RUN pip install --no-cache-dir \
     selenium==4.18.1 \
     requests==2.31.0 \
     pytest==8.1.1
 
+# ── Pre-download ChromeDriver via Selenium Manager ────────────────
+RUN python -c "from selenium import webdriver; \
+    from selenium.webdriver.chrome.options import Options; \
+    opts = Options(); \
+    opts.add_argument('--headless'); \
+    opts.add_argument('--no-sandbox'); \
+    opts.add_argument('--disable-dev-shm-usage'); \
+    opts.binary_location = '/usr/bin/google-chrome'; \
+    webdriver.Chrome(options=opts).quit()" \
+    || true
+
 # ── Copy only the test file ───────────────────────────────────────
 WORKDIR /tests
 COPY test_job_portal.py .
 
-# ── Run tests and write JUnit XML for Jenkins to parse ────────────
+# ── Run tests and save JUnit XML for Jenkins ──────────────────────
 CMD ["python", "-m", "pytest", "test_job_portal.py", \
      "-v", "--tb=short", \
      "--junit-xml=/tests/results/test-results.xml"]
