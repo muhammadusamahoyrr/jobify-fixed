@@ -1,137 +1,129 @@
-// ─────────────────────────────────────────────────────────────────
-//  Jenkinsfile — Job Portal CI Pipeline
-//  Stages: Checkout → Build Docker Image → Run Tests → Email Results
-// ─────────────────────────────────────────────────────────────────
-
 pipeline {
 
     agent any
 
     environment {
-        IMAGE_NAME = "job-portal-tests"
-        RESULTS_DIR = "${WORKSPACE}/results"
+        TEST_IMAGE = "jobify-selenium-tests"
     }
 
     triggers {
-        // Automatically trigger when GitHub pushes to the repo
         githubPush()
     }
 
     stages {
 
-        // ── Stage 1: Pull latest code from GitHub ──────────────
-        stage('Checkout') {
+        // ── Stage 1: Clone Repo ──────────────────────────────────
+        stage('Clone Repo') {
             steps {
-                echo '📥 Checking out code from GitHub...'
-                checkout scm
+                git branch: 'main',
+                    url: 'https://github.com/muhammadusamahoyrr/jobify-fixed.git'
             }
         }
 
-        // ── Stage 2: Build the Docker image ────────────────────
-        stage('Build Docker Image') {
+        // ── Stage 2: Build Test Docker Image ─────────────────────
+        stage('Build Test Image') {
             steps {
-                echo '🐳 Building Docker image with Chrome + Selenium...'
-                sh '''
-                    docker build -t ${IMAGE_NAME}:latest .
-                '''
+                echo '🐳 Building Python + Chrome + Selenium image...'
+                sh "docker build -f Dockerfile.test -t ${TEST_IMAGE}:latest ."
             }
         }
 
-        // ── Stage 3: Run Selenium tests inside container ───────
+        // ── Stage 3: Run Selenium Tests ───────────────────────────
         stage('Run Tests') {
             steps {
-                echo '🧪 Running Selenium test cases...'
-                sh '''
-                    mkdir -p ${RESULTS_DIR}
-
+                echo '🧪 Running Selenium test cases inside container...'
+                sh """
+                    mkdir -p ${WORKSPACE}/results
                     docker run --rm \
-                        -v ${RESULTS_DIR}:/tests/results \
-                        ${IMAGE_NAME}:latest \
-                        python -m pytest test_job_portal.py \
-                            -v --tb=short \
-                            --junit-xml=/tests/results/test-results.xml \
-                        || true
-                '''
-                // "|| true" ensures pipeline continues to email stage
-                // even if some tests fail
+                        -v ${WORKSPACE}/results:/tests/results \
+                        ${TEST_IMAGE}:latest \
+                    || true
+                """
             }
             post {
                 always {
-                    // Publish JUnit test results in Jenkins UI
                     junit allowEmptyResults: true,
                           testResults: 'results/test-results.xml'
                 }
             }
         }
 
+        // ── Stage 4: Deploy ───────────────────────────────────────
+        stage('Deploy') {
+            steps {
+                sh 'sudo docker compose -f docker-compose-part2.yml down || true'
+                sh 'sudo docker compose -f docker-compose-part2.yml up -d --build'
+            }
+        }
     }
 
-    // ── Post: Email results to whoever pushed to GitHub ─────────
+    // ── Post: Email results to whoever pushed ────────────────────
     post {
         always {
             script {
-                // Get the email of the person who triggered this build
                 def pusherEmail = ''
                 try {
-                    pusherEmail = env.GIT_COMMITTER_EMAIL
-                              ?: sh(script: "git log -1 --pretty=format:'%ae'",
-                                   returnStdout: true).trim()
+                    pusherEmail = sh(
+                        script: "git log -1 --pretty=format:'%ae'",
+                        returnStdout: true
+                    ).trim()
                 } catch (Exception e) {
-                    pusherEmail = 'qasimalik@gmail.com'  // fallback
+                    pusherEmail = 'qasimalik@gmail.com'
                 }
 
-                def buildStatus  = currentBuild.currentResult ?: 'UNKNOWN'
-                def buildColor   = buildStatus == 'SUCCESS' ? '#27ae60' : '#e74c3c'
-                def buildEmoji   = buildStatus == 'SUCCESS' ? '✅' : '❌'
-                def jobName      = env.JOB_NAME
-                def buildNumber  = env.BUILD_NUMBER
-                def buildUrl     = env.BUILD_URL
+                def status   = currentBuild.currentResult ?: 'UNKNOWN'
+                def color    = (status == 'SUCCESS') ? '#27ae60' : '#e74c3c'
+                def emoji    = (status == 'SUCCESS') ? '✅' : '❌'
+                def jobName  = env.JOB_NAME
+                def buildNum = env.BUILD_NUMBER
+                def buildUrl = env.BUILD_URL
 
                 emailext(
-                    to:      pusherEmail,
-                    subject: "${buildEmoji} [${buildStatus}] ${jobName} — Build #${buildNumber}",
+                    to:       pusherEmail,
+                    subject:  "${emoji} [${status}] Jobify Pipeline — Build #${buildNum}",
                     mimeType: 'text/html',
                     body: """
                     <html>
-                    <body style="font-family: Arial, sans-serif; padding: 20px;">
-
-                        <h2 style="color: ${buildColor};">
-                            ${buildEmoji} Job Portal — Test Pipeline ${buildStatus}
-                        </h2>
-
-                        <table style="border-collapse: collapse; width: 100%;">
-                            <tr>
-                                <td style="padding: 8px; font-weight: bold;">Job Name</td>
-                                <td style="padding: 8px;">${jobName}</td>
-                            </tr>
-                            <tr style="background: #f5f5f5;">
-                                <td style="padding: 8px; font-weight: bold;">Build Number</td>
-                                <td style="padding: 8px;">#${buildNumber}</td>
-                            </tr>
-                            <tr>
-                                <td style="padding: 8px; font-weight: bold;">Status</td>
-                                <td style="padding: 8px; color: ${buildColor};"><strong>${buildStatus}</strong></td>
-                            </tr>
-                            <tr style="background: #f5f5f5;">
-                                <td style="padding: 8px; font-weight: bold;">Triggered By</td>
-                                <td style="padding: 8px;">${pusherEmail}</td>
-                            </tr>
-                        </table>
-
-                        <br>
-                        <a href="${buildUrl}" style="
-                            background: #2c3e50;
-                            color: white;
-                            padding: 10px 20px;
-                            text-decoration: none;
-                            border-radius: 4px;
-                        ">View Full Build & Test Report →</a>
-
-                        <p style="margin-top: 20px; color: #888; font-size: 12px;">
-                            This email was sent automatically by Jenkins.<br>
-                            Pipeline: ${jobName} | Build: #${buildNumber}
-                        </p>
-
+                    <body style="font-family:Arial,sans-serif;padding:24px;max-width:600px;">
+                      <h2 style="color:${color};">${emoji} Jobify — Test Pipeline ${status}</h2>
+                      <table style="border-collapse:collapse;width:100%;margin:16px 0;">
+                        <tr style="background:#f5f5f5;">
+                          <td style="padding:10px;font-weight:bold;">Job</td>
+                          <td style="padding:10px;">${jobName}</td>
+                        </tr>
+                        <tr>
+                          <td style="padding:10px;font-weight:bold;">Build #</td>
+                          <td style="padding:10px;">${buildNum}</td>
+                        </tr>
+                        <tr style="background:#f5f5f5;">
+                          <td style="padding:10px;font-weight:bold;">Result</td>
+                          <td style="padding:10px;color:${color};font-weight:bold;">${status}</td>
+                        </tr>
+                        <tr>
+                          <td style="padding:10px;font-weight:bold;">Triggered by</td>
+                          <td style="padding:10px;">${pusherEmail}</td>
+                        </tr>
+                        <tr style="background:#f5f5f5;">
+                          <td style="padding:10px;font-weight:bold;">App URL</td>
+                          <td style="padding:10px;">
+                            <a href="http://3.212.77.197">http://3.212.77.197</a>
+                          </td>
+                        </tr>
+                      </table>
+                      <a href="${buildUrl}testReport"
+                         style="display:inline-block;background:#2c3e50;color:#fff;
+                                padding:10px 20px;border-radius:4px;text-decoration:none;
+                                margin-right:8px;">
+                         View Test Report →
+                      </a>
+                      <a href="${buildUrl}"
+                         style="display:inline-block;background:#7f8c8d;color:#fff;
+                                padding:10px 20px;border-radius:4px;text-decoration:none;">
+                         View Full Build →
+                      </a>
+                      <p style="margin-top:24px;color:#aaa;font-size:11px;">
+                        Sent automatically by Jenkins · ${jobName} #${buildNum}
+                      </p>
                     </body>
                     </html>
                     """
