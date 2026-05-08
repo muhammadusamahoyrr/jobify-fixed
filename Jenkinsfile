@@ -27,7 +27,7 @@ pipeline {
         // ───────────────────────────────
         stage('Build Test Image') {
             steps {
-                echo '🐳 Building Python + Chrome + Selenium image...'
+                echo '🐳 Building Selenium test image...'
                 sh "docker build -f Dockerfile.test -t ${TEST_IMAGE}:latest ."
             }
         }
@@ -37,7 +37,7 @@ pipeline {
         // ───────────────────────────────
         stage('Seed Test Accounts') {
             steps {
-                echo '🌱 Creating test accounts in database...'
+                echo '🌱 Seeding test users...'
                 sh '''
                     curl -s -X POST http://3.212.77.197:8080/auth/signup \
                       -H "Content-Type: application/json" \
@@ -47,17 +47,17 @@ pipeline {
                       -H "Content-Type: application/json" \
                       -d '{"name":"Test Seeker","email":"seeker@jobportal.com","password":"Seeker@123","role":"jobseeker"}' || true
 
-                    echo "✅ Seed complete"
+                    echo "✅ Seeding done"
                 '''
             }
         }
 
         // ───────────────────────────────
-        // 4. Run Selenium + API Tests
+        // 4. Run Tests
         // ───────────────────────────────
         stage('Run Tests') {
             steps {
-                echo '🧪 Running Selenium test cases inside container...'
+                echo '🧪 Running Selenium tests...'
                 sh """
                     mkdir -p ${WORKSPACE}/results
 
@@ -77,13 +77,19 @@ pipeline {
         }
 
         // ───────────────────────────────
-        // 5. Deploy Application
+        // 5. Deploy Application (FIXED)
         // ───────────────────────────────
         stage('Deploy') {
             steps {
-                echo '🚀 Deploying application using docker-compose...'
-                sh 'sudo docker compose -f docker-compose-part2.yml down || true'
-                sh 'sudo docker compose -f docker-compose-part2.yml up -d --build'
+                echo '🚀 Deploying application safely...'
+                sh '''
+                    sudo docker compose -f docker-compose-part2.yml down --remove-orphans || true
+
+                    sudo docker rm -f jobify-part2 || true
+                    sudo docker rm -f jobify-pipeline-web-1 || true
+
+                    sudo docker compose -f docker-compose-part2.yml up -d
+                '''
             }
         }
     }
@@ -113,57 +119,24 @@ pipeline {
                 def buildUrl = env.BUILD_URL
 
                 emailext(
-                    to:       pusherEmail,
-                    subject:  "${emoji} [${status}] Jobify Pipeline — Build #${buildNum}",
+                    to: pusherEmail,
+                    subject: "${emoji} [${status}] Jobify Pipeline — Build #${buildNum}",
                     mimeType: 'text/html',
                     body: """
                     <html>
-                    <body style="font-family:Arial,sans-serif;padding:24px;max-width:600px;">
-                      <h2 style="color:${color};">${emoji} Jobify CI/CD Pipeline ${status}</h2>
+                    <body style="font-family:Arial;padding:20px;">
+                      <h2 style="color:${color};">${emoji} Pipeline ${status}</h2>
 
-                      <table style="border-collapse:collapse;width:100%;margin:16px 0;">
-                        <tr style="background:#f5f5f5;">
-                          <td style="padding:10px;font-weight:bold;">Job</td>
-                          <td style="padding:10px;">${jobName}</td>
-                        </tr>
+                      <p><b>Job:</b> ${jobName}</p>
+                      <p><b>Build:</b> ${buildNum}</p>
+                      <p><b>Status:</b> ${status}</p>
 
-                        <tr>
-                          <td style="padding:10px;font-weight:bold;">Build #</td>
-                          <td style="padding:10px;">${buildNum}</td>
-                        </tr>
+                      <p>
+                        <a href="http://3.212.77.197:8082">Open App</a>
+                      </p>
 
-                        <tr style="background:#f5f5f5;">
-                          <td style="padding:10px;font-weight:bold;">Result</td>
-                          <td style="padding:10px;color:${color};font-weight:bold;">${status}</td>
-                        </tr>
-
-                        <tr>
-                          <td style="padding:10px;font-weight:bold;">Triggered by</td>
-                          <td style="padding:10px;">${pusherEmail}</td>
-                        </tr>
-
-                        <tr style="background:#f5f5f5;">
-                          <td style="padding:10px;font-weight:bold;">App URL</td>
-                          <td style="padding:10px;">
-                            <a href="http://3.212.77.197">http://3.212.77.197</a>
-                          </td>
-                        </tr>
-                      </table>
-
-                      <a href="${buildUrl}testReport"
-                         style="display:inline-block;background:#2c3e50;color:#fff;
-                                padding:10px 20px;border-radius:4px;text-decoration:none;">
-                         View Test Report →
-                      </a>
-
-                      <a href="${buildUrl}"
-                         style="display:inline-block;background:#7f8c8d;color:#fff;
-                                padding:10px 20px;border-radius:4px;text-decoration:none;margin-left:8px;">
-                         View Full Build →
-                      </a>
-
-                      <p style="margin-top:24px;color:#aaa;font-size:11px;">
-                        Auto-generated by Jenkins · ${jobName} #${buildNum}
+                      <p>
+                        <a href="${buildUrl}testReport">Test Report</a>
                       </p>
                     </body>
                     </html>
