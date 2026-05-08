@@ -82,8 +82,8 @@ pipeline {
         stage('Deploy') {
             steps {
                 echo '🚀 Deploying application using docker-compose...'
-                sh 'sudo docker-compose -f docker-compose-part2.yml down || true'
-                sh 'sudo docker-compose -f docker-compose-part2.yml up -d --build'
+                sh 'sudo docker compose -f docker-compose-part2.yml down || true'
+                sh 'sudo docker compose -f docker-compose-part2.yml up -d --build'
             }
         }
     }
