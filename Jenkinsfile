@@ -4,6 +4,8 @@ pipeline {
 
     environment {
         TEST_IMAGE = "jobify-selenium-tests"
+        BACKEND_URL = "http://3.212.77.197:8080"
+        FRONTEND_URL = "http://3.212.77.197:8082"
     }
 
     triggers {
@@ -23,7 +25,7 @@ pipeline {
         }
 
         // ───────────────────────────────
-        // 2. Build Test Docker Image
+        // 2. Build Test Image
         // ───────────────────────────────
         stage('Build Test Image') {
             steps {
@@ -33,36 +35,56 @@ pipeline {
         }
 
         // ───────────────────────────────
-        // 3. Seed Test Accounts
+        // 3. Wait for Backend (IMPORTANT FIX)
         // ───────────────────────────────
-        stage('Seed Test Accounts') {
+        stage('Wait for Backend') {
             steps {
-                echo '🌱 Seeding test users...'
+                echo '⏳ Waiting for backend to be ready...'
                 sh '''
-                    curl -s -X POST http://3.212.77.197:8080/auth/signup \
-                      -H "Content-Type: application/json" \
-                      -d '{"name":"Test Employer","email":"employer@jobportal.com","password":"Employer@123","role":"employer"}' || true
-
-                    curl -s -X POST http://3.212.77.197:8080/auth/signup \
-                      -H "Content-Type: application/json" \
-                      -d '{"name":"Test Seeker","email":"seeker@jobportal.com","password":"Seeker@123","role":"jobseeker"}' || true
-
-                    echo "✅ Seeding done"
+                    for i in {1..10}; do
+                        echo "Check $i..."
+                        curl -s --fail http://3.212.77.197:8080/health && exit 0
+                        sleep 5
+                    done
+                    echo "Backend not ready"
+                    exit 1
                 '''
             }
         }
 
         // ───────────────────────────────
-        // 4. Run Tests
+        // 4. Seed Test Accounts
+        // ───────────────────────────────
+        stage('Seed Test Accounts') {
+            steps {
+                echo '🌱 Seeding test users...'
+                sh """
+                    curl -s -X POST ${BACKEND_URL}/auth/signup \
+                      -H 'Content-Type: application/json' \
+                      -d '{"name":"Test Employer","email":"employer@jobportal.com","password":"Employer@123","role":"employer"}' || true
+
+                    curl -s -X POST ${BACKEND_URL}/auth/signup \
+                      -H 'Content-Type: application/json' \
+                      -d '{"name":"Test Seeker","email":"seeker@jobportal.com","password":"Seeker@123","role":"jobseeker"}' || true
+
+                    echo "✅ Seed complete"
+                """
+            }
+        }
+
+        // ───────────────────────────────
+        // 5. Run Tests
         // ───────────────────────────────
         stage('Run Tests') {
             steps {
-                echo '🧪 Running Selenium tests...'
+                echo '🧪 Running Selenium + API tests...'
                 sh """
                     mkdir -p ${WORKSPACE}/results
 
                     docker run --rm \
                         -v ${WORKSPACE}/results:/tests/results \
+                        -e BASE_URL=${BACKEND_URL} \
+                        -e FRONTEND_URL=${FRONTEND_URL} \
                         ${TEST_IMAGE}:latest \
                         pytest test_job_portal.py -v \
                         --junit-xml=/tests/results/test-results.xml
@@ -77,7 +99,7 @@ pipeline {
         }
 
         // ───────────────────────────────
-        // 5. Deploy Application (FIXED)
+        // 6. Deploy Application (CLEAN FIX)
         // ───────────────────────────────
         stage('Deploy') {
             steps {
@@ -85,17 +107,16 @@ pipeline {
                 sh '''
                     sudo docker compose -f docker-compose-part2.yml down --remove-orphans || true
 
-                    sudo docker rm -f jobify-part2 || true
-                    sudo docker rm -f jobify-pipeline-web-1 || true
+                    sudo docker compose -f docker-compose-part2.yml up -d --build
 
-                    sudo docker compose -f docker-compose-part2.yml up -d
+                    echo "✅ Deployment complete"
                 '''
             }
         }
     }
 
     // ───────────────────────────────
-    // 6. Post Actions (Email Report)
+    // POST ACTIONS
     // ───────────────────────────────
     post {
         always {
@@ -132,7 +153,7 @@ pipeline {
                       <p><b>Status:</b> ${status}</p>
 
                       <p>
-                        <a href="http://3.212.77.197:8082">Open App</a>
+                        <a href="${FRONTEND_URL}">Open App</a>
                       </p>
 
                       <p>
