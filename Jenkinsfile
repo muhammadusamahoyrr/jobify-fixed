@@ -12,7 +12,9 @@ pipeline {
 
     stages {
 
-        // ── Stage 1: Clone Repo ──────────────────────────────────
+        // ───────────────────────────────
+        // 1. Clone Repo
+        // ───────────────────────────────
         stage('Clone Repo') {
             steps {
                 git branch: 'main',
@@ -20,7 +22,9 @@ pipeline {
             }
         }
 
-        // ── Stage 2: Build Test Docker Image ─────────────────────
+        // ───────────────────────────────
+        // 2. Build Test Docker Image
+        // ───────────────────────────────
         stage('Build Test Image') {
             steps {
                 echo '🐳 Building Python + Chrome + Selenium image...'
@@ -28,39 +32,49 @@ pipeline {
             }
         }
 
-        // ── Stage 3: Run Selenium Tests ───────────────────────────
+        // ───────────────────────────────
+        // 3. Run Selenium + API Tests
+        // ───────────────────────────────
         stage('Run Tests') {
             steps {
                 echo '🧪 Running Selenium test cases inside container...'
                 sh """
                     mkdir -p ${WORKSPACE}/results
+
                     docker run --rm \
                         -v ${WORKSPACE}/results:/tests/results \
                         ${TEST_IMAGE}:latest \
-                    || true
+                        pytest test_job_portal.py -v \
+                        --junit-xml=/tests/results/test-results.xml
                 """
             }
+
             post {
                 always {
-                    junit allowEmptyResults: true,
-                          testResults: 'results/test-results.xml'
+                    junit testResults: 'results/test-results.xml'
                 }
             }
         }
 
-        // ── Stage 4: Deploy ───────────────────────────────────────
+        // ───────────────────────────────
+        // 4. Deploy Application
+        // ───────────────────────────────
         stage('Deploy') {
             steps {
-                sh 'sudo docker compose -f docker-compose-part2.yml down || true'
-                sh 'sudo docker compose -f docker-compose-part2.yml up -d --build'
+                echo '🚀 Deploying application using docker-compose...'
+                sh 'sudo docker-compose -f docker-compose-part2.yml down || true'
+                sh 'sudo docker-compose -f docker-compose-part2.yml up -d --build'
             }
         }
     }
 
-    // ── Post: Email results to whoever pushed ────────────────────
+    // ───────────────────────────────
+    // 5. Post Actions (Email Report)
+    // ───────────────────────────────
     post {
         always {
             script {
+
                 def pusherEmail = ''
                 try {
                     pusherEmail = sh(
@@ -68,7 +82,7 @@ pipeline {
                         returnStdout: true
                     ).trim()
                 } catch (Exception e) {
-                    pusherEmail = 'qasimalik@gmail.com'
+                    pusherEmail = 'fallback@example.com'
                 }
 
                 def status   = currentBuild.currentResult ?: 'UNKNOWN'
@@ -85,24 +99,29 @@ pipeline {
                     body: """
                     <html>
                     <body style="font-family:Arial,sans-serif;padding:24px;max-width:600px;">
-                      <h2 style="color:${color};">${emoji} Jobify — Test Pipeline ${status}</h2>
+                      <h2 style="color:${color};">${emoji} Jobify CI/CD Pipeline ${status}</h2>
+
                       <table style="border-collapse:collapse;width:100%;margin:16px 0;">
                         <tr style="background:#f5f5f5;">
                           <td style="padding:10px;font-weight:bold;">Job</td>
                           <td style="padding:10px;">${jobName}</td>
                         </tr>
+
                         <tr>
                           <td style="padding:10px;font-weight:bold;">Build #</td>
                           <td style="padding:10px;">${buildNum}</td>
                         </tr>
+
                         <tr style="background:#f5f5f5;">
                           <td style="padding:10px;font-weight:bold;">Result</td>
                           <td style="padding:10px;color:${color};font-weight:bold;">${status}</td>
                         </tr>
+
                         <tr>
                           <td style="padding:10px;font-weight:bold;">Triggered by</td>
                           <td style="padding:10px;">${pusherEmail}</td>
                         </tr>
+
                         <tr style="background:#f5f5f5;">
                           <td style="padding:10px;font-weight:bold;">App URL</td>
                           <td style="padding:10px;">
@@ -110,19 +129,21 @@ pipeline {
                           </td>
                         </tr>
                       </table>
+
                       <a href="${buildUrl}testReport"
                          style="display:inline-block;background:#2c3e50;color:#fff;
-                                padding:10px 20px;border-radius:4px;text-decoration:none;
-                                margin-right:8px;">
+                                padding:10px 20px;border-radius:4px;text-decoration:none;">
                          View Test Report →
                       </a>
+
                       <a href="${buildUrl}"
                          style="display:inline-block;background:#7f8c8d;color:#fff;
-                                padding:10px 20px;border-radius:4px;text-decoration:none;">
+                                padding:10px 20px;border-radius:4px;text-decoration:none;margin-left:8px;">
                          View Full Build →
                       </a>
+
                       <p style="margin-top:24px;color:#aaa;font-size:11px;">
-                        Sent automatically by Jenkins · ${jobName} #${buildNum}
+                        Auto-generated by Jenkins · ${jobName} #${buildNum}
                       </p>
                     </body>
                     </html>
