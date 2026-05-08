@@ -1,11 +1,13 @@
-# ─────────────────────────────────────────────────────────────────
-#  Dockerfile.test — Python + Chrome + Selenium (auto ChromeDriver)
-# ─────────────────────────────────────────────────────────────────
+# ───────────────────────────────────────────────────────────────
+# Dockerfile.test — Python + Chromium + Selenium (CI Stable)
+# ───────────────────────────────────────────────────────────────
 
 FROM python:3.11-slim
 
-# ── System dependencies needed by Chrome ─────────────────────────
+# ── Install system dependencies + Chromium browser ─────────────
 RUN apt-get update && apt-get install -y \
+    chromium \
+    chromium-driver \
     wget \
     curl \
     gnupg \
@@ -17,7 +19,6 @@ RUN apt-get update && apt-get install -y \
     libatk1.0-0 \
     libcups2 \
     libdbus-1-3 \
-    libgdk-pixbuf-xlib-2.0-0 \
     libnspr4 \
     libnss3 \
     libx11-xcb1 \
@@ -25,41 +26,39 @@ RUN apt-get update && apt-get install -y \
     libxdamage1 \
     libxrandr2 \
     xdg-utils \
-    --no-install-recommends \
+    libgtk-3-0 \
+    libgbm1 \
+    libxshmfence1 \
+    libu2f-udev \
  && rm -rf /var/lib/apt/lists/*
 
-# ── Install Google Chrome stable ─────────────────────────────────
-RUN wget -q -O /tmp/chrome.deb \
-        https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb \
- && apt-get update \
- && apt-get install -y /tmp/chrome.deb \
- && rm /tmp/chrome.deb \
- && rm -rf /var/lib/apt/lists/*
+# ── Set working directory ───────────────────────────────────────
+WORKDIR /tests
 
-# ── Python packages ───────────────────────────────────────────────
-# selenium>=4.6 includes Selenium Manager which auto-downloads
-# the correct ChromeDriver — no manual installation needed!
+# ── Install Python dependencies ─────────────────────────────────
 RUN pip install --no-cache-dir \
     selenium==4.18.1 \
     requests==2.31.0 \
     pytest==8.1.1
 
-# ── Pre-download ChromeDriver via Selenium Manager ────────────────
-RUN python -c "from selenium import webdriver; \
-    from selenium.webdriver.chrome.options import Options; \
-    opts = Options(); \
-    opts.add_argument('--headless'); \
-    opts.add_argument('--no-sandbox'); \
-    opts.add_argument('--disable-dev-shm-usage'); \
-    opts.binary_location = '/usr/bin/google-chrome'; \
-    webdriver.Chrome(options=opts).quit()" \
-    || true
-
-# ── Copy only the test file ───────────────────────────────────────
-WORKDIR /tests
+# ── Copy test files ──────────────────────────────────────────────
 COPY test_job_portal.py .
 
-# ── Run tests and save JUnit XML for Jenkins ──────────────────────
+# ── Optional: quick Chromium + Selenium sanity check ────────────
+RUN python -c "\
+from selenium import webdriver; \
+from selenium.webdriver.chrome.options import Options; \
+opts = Options(); \
+opts.add_argument('--headless'); \
+opts.add_argument('--no-sandbox'); \
+opts.add_argument('--disable-dev-shm-usage'); \
+driver = webdriver.Chrome(options=opts); \
+driver.quit()" || true
+
+# ── Create results directory for Jenkins ────────────────────────
+RUN mkdir -p /tests/results
+
+# ── Default command: run tests with JUnit output ────────────────
 CMD ["python", "-m", "pytest", "test_job_portal.py", \
      "-v", "--tb=short", \
      "--junit-xml=/tests/results/test-results.xml"]
