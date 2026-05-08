@@ -33,7 +33,27 @@ pipeline {
         }
 
         // ───────────────────────────────
-        // 3. Run Selenium + API Tests
+        // 3. Seed Test Accounts
+        // ───────────────────────────────
+        stage('Seed Test Accounts') {
+            steps {
+                echo '🌱 Creating test accounts in database...'
+                sh '''
+                    curl -s -X POST http://3.212.77.197:8080/auth/signup \
+                      -H "Content-Type: application/json" \
+                      -d '{"name":"Test Employer","email":"employer@jobportal.com","password":"Employer@123","role":"employer"}' || true
+
+                    curl -s -X POST http://3.212.77.197:8080/auth/signup \
+                      -H "Content-Type: application/json" \
+                      -d '{"name":"Test Seeker","email":"seeker@jobportal.com","password":"Seeker@123","role":"jobseeker"}' || true
+
+                    echo "✅ Seed complete"
+                '''
+            }
+        }
+
+        // ───────────────────────────────
+        // 4. Run Selenium + API Tests
         // ───────────────────────────────
         stage('Run Tests') {
             steps {
@@ -57,7 +77,7 @@ pipeline {
         }
 
         // ───────────────────────────────
-        // 4. Deploy Application
+        // 5. Deploy Application
         // ───────────────────────────────
         stage('Deploy') {
             steps {
@@ -69,7 +89,7 @@ pipeline {
     }
 
     // ───────────────────────────────
-    // 5. Post Actions (Email Report)
+    // 6. Post Actions (Email Report)
     // ───────────────────────────────
     post {
         always {
